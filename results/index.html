@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Gunshot Case — ALS + MapLibre (animated)</title>
+
+    <!-- MapLibre CSS -->
+    <link href="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.css" rel="stylesheet" />
+
+    <style>
+      :root{ --blue:#1F77B4; --orange:#FF7F0E; --gray:#7F7F7F; }
+      *{box-sizing:border-box}
+      body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"}
+      #map{height:100vh}
+
+      /* HUDs */
+      .titlebar{
+        position:fixed; z-index:12; left:12px; top:12px;
+        background:#fff; padding:8px 12px; border-radius:8px;
+        box-shadow:0 2px 8px rgba(0,0,0,.15); font-weight:600;
+      }
+      .legend{
+        position:fixed; z-index:12; left:12px; top:58px;
+        background:#fff; padding:8px 10px; border-radius:8px;
+        box-shadow:0 2px 8px rgba(0,0,0,.15); display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+      }
+      .chip{display:inline-flex; align-items:center; gap:6px; font-size:14px}
+      .dot{width:10px;height:10px;border-radius:50%}
+      .dot.blue{background:var(--blue)}
+      .dot.orange{background:var(--orange)}
+      .dot.gray{background:var(--gray)}
+      .muted{color:#666}
+
+      .controls{
+        position:fixed; z-index:12; left:12px; bottom:12px;
+        background:#fff; padding:10px; border-radius:10px; width:min(520px,92vw);
+        box-shadow:0 2px 10px rgba(0,0,0,.18);
+      }
+      .controls .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+      .controls button{padding:6px 10px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer}
+      .controls button:active{transform:translateY(1px)}
+      .controls .range{width:100%; margin-top:6px}
+      .ticks{display:flex; justify-content:space-between; font-size:11px; color:#666; margin-top:2px}
+
+      /* Popup text */
+      .pop{font:12px/1.3 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+      .pop .k{color:#666}
+    </style>
+  </head>
+
+  <body>
+    <div class="titlebar" id="title">
+      Gunshot Case — locations every 2.5s
+    </div>
+
+    <!-- Legend: only Still / Walk / Run (no Dead, no Alive) -->
+    <div class="legend" id="legend">
+      <span class="chip"><span class="dot gray"></span> Still (<span id="cnt-still">0</span>)</span>
+      <span class="chip"><span class="dot blue"></span> Walk (<span id="cnt-walk">0</span>)</span>
+      <span class="chip"><span class="dot orange"></span> Run (<span id="cnt-run">0</span>)</span>
+    </div>
+
+    <div class="controls">
+      <div class="row">
+        <button id="playBtn">Play</button>
+        <button id="pauseBtn">Pause</button>
+        <span class="muted">t = <span id="tLabel">0.0</span>s</span>
+      </div>
+      <input id="timeSlider" class="range" type="range" min="0" max="10" step="1" value="0">
+      <div id="tickRow" class="ticks"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- MapLibre + AWS helper -->
+    <script src="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/@aws/amazon-location-utilities-auth-helper@1.x/dist/amazonLocationAuthHelper.js"></script>
+
+    <script>
+      // ========= 1) YOUR AWS RESOURCES (keep these) =========
+      const identityPoolId = "us-west-2:dcb9a81c-6b9a-4c72-a288-dd1a7e83e4ff";
+      const mapName        = "GunshotDemoMap";
+      const region         = identityPoolId.split(":")[0];
+
+      // ========= 2) CONFIG =========
+      const DATA_URL = "./out/gunshot_points_all.geojson"; // keep relative
+      const MAP_CENTER = [-121.7493613, 38.5411082];       // lon,lat (adjust if you like)
+      const STEP_MS    = 600;                               // animation speed
+
+      // ========= 3) GEO helpers =========
+      function haversineMeters(lon1, lat1, lon2, lat2){
+        const R = 6378137; // meters
+        const toRad = (d)=> d*Math.PI/180;
+        const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+        return 2*R*Math.asin(Math.sqrt(a));
+      }
+
+      // ========= 4) MAIN =========
+      (async function main(){
+        // Auth + map init
+        const authHelper = await amazonLocationAuthHelper.withIdentityPoolId(identityPoolId);
+        const map = new maplibregl.Map({
+          container: "map",
+          center: MAP_CENTER,
+          zoom: 16,
+          style: `https://maps.geo.${region}.amazonaws.com/maps/v0/maps/${mapName}/style-descriptor`,
+          ...authHelper.getMapAuthenticationOptions()
+        });
+        map.addControl(new maplibregl.NavigationControl(), "top-left");
+
+        // Load your GeoJSON (features have phone_id + t)
+        const full = await fetch(DATA_URL).then(r => r.json());
+
+        // Collect unique times & build quick lookup by (phone,t)
+        const TIMES = Array.from(new Set(full.features.map(f => f.properties.t))).sort((a,b)=>a-b);
+        const indexByPhoneTime = new Map(); // key = `${phone}|${t}` -> [lng,lat]
+        for(const f of full.features){
+          const p = f.properties || {};
+          const phone = String(p.phone_id ?? p.imei ?? "");
+          const t = Number(p.t);
+          indexByPhoneTime.set(`${phone}|${t}`, f.geometry.coordinates);
+        }
+
+        // Build slider ticks
+        const tickRow = document.getElementById("tickRow");
+        const fmt = (n)=> Number.parseFloat(n).toFixed(1);
+        tickRow.innerHTML = TIMES.map((t,i)=> `<span>${(i%2===0)? fmt(t)+"s" : " "}</span>`).join("");
+
+        // HUD refs
+        const tLabel = document.getElementById("tLabel");
+        const cntStill = document.getElementById("cnt-still");
+        const cntWalk  = document.getElementById("cnt-walk");
+        const cntRun   = document.getElementById("cnt-run");
+        const slider   = document.getElementById("timeSlider");
+        slider.max = TIMES.length - 1;
+
+        // Popup on hover
+        const popup = new maplibregl.Popup({closeButton:false, closeOnClick:false});
+        map.on("mouseenter", "phones-dots", ()=> map.getCanvas().style.cursor = "pointer");
+        map.on("mouseleave", "phones-dots", ()=> { map.getCanvas().style.cursor = ""; popup.remove(); });
+        map.on("mousemove", "phones-dots", (e)=>{
+          const f = e.features && e.features[0];
+          if(!f) return;
+          const p = f.properties || {};
+          const html = `<div class="pop">
+            <div><span class="k">phone:</span> ${p.phone_id ?? p.imei ?? "?"}</div>
+            <div><span class="k">state:</span> ${p.cat ?? "?"}</div>
+            <div><span class="k">t:</span> ${fmt(p.t)} s</div>
+            <div><span class="k">lon:</span> ${fmt(e.lngLat.lng)} • <span class="k">lat:</span> ${fmt(e.lngLat.lat)}</div>
+          </div>`;
+          popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+        });
+
+        map.on("load", () => {
+          // One source + layer; we will replace source data each frame with computed categories
+          map.addSource("phones", { type:"geojson", data: {type:"FeatureCollection", features:[]} });
+
+          map.addLayer({
+            id:"phones-dots",
+            type:"circle",
+            source:"phones",
+            paint:{
+              "circle-radius":4,
+              "circle-stroke-width":1,
+              "circle-stroke-color":"#00000040",
+              "circle-color":[
+                "match", ["get","cat"],
+                "run",   "#FF7F0E",
+                "walk",  "#1F77B4",
+                "still", "#7F7F7F",
+                /* other */ "#666"
+              ]
+            }
+          });
+
+          let idx = 0;
+          let timer = null;
+
+          function frameDataForTime(t){
+            const tIdx = TIMES.indexOf(t);
+            const tPrev = (tIdx>0) ? TIMES[tIdx-1] : null;
+
+            let still=0, walk=0, run=0;
+            const feats = [];
+
+            const featsNow = full.features.filter(f => f.properties.t === t);
+            for(const f of featsNow){
+              const p = f.properties || {};
+              const phone = String(p.phone_id ?? p.imei ?? "");
+              const [lng,lat] = f.geometry.coordinates;
+
+              // Speed from previous frame (if any)
+              let speed = 0;
+              if (tPrev !== null){
+                const prev = indexByPhoneTime.get(`${phone}|${tPrev}`);
+                if (prev){
+                  const dist = haversineMeters(prev[0], prev[1], lng, lat); // meters
+                  const dt = t - tPrev; // seconds
+                  speed = (dt>0)? (dist/dt) : 0;
+                }
+              }
+
+              // Classify (m/s): run >=1.7, walk >0, else still
+              let cat = "still";
+              if (speed >= 1.7) cat = "run";
+              else if (speed > 0) cat = "walk";
+
+              if (cat==="run") run++; else if (cat==="walk") walk++; else still++;
+
+              feats.push({
+                type:"Feature",
+                geometry:{ type:"Point", coordinates:[lng,lat] },
+                properties:{
+                  phone_id: phone,
+                  t: t,
+                  cat: cat
+                }
+              });
+            }
+            return { fc:{type:"FeatureCollection", features:feats}, counts:{still,walk,run} };
+          }
+
+          function showIndex(i){
+            idx = Math.max(0, Math.min(TIMES.length-1, i));
+            const t = TIMES[idx];
+
+            const {fc, counts} = frameDataForTime(t);
+            const src = map.getSource("phones");
+            if (src) src.setData(fc);
+
+            // HUD updates
+            tLabel.textContent = fmt(t);
+            slider.value = String(idx);
+            cntStill.textContent = counts.still;
+            cntWalk.textContent  = counts.walk;
+            cntRun.textContent   = counts.run;
+          }
+
+          function play(){
+            if (timer) return;
+            timer = setInterval(() => {
+              idx = (idx + 1) % TIMES.length;
+              showIndex(idx);
+            }, STEP_MS);
+          }
+          function pause(){ if (timer){ clearInterval(timer); timer=null; } }
+
+          // Wire controls
+          document.getElementById("playBtn").onclick  = play;
+          document.getElementById("pauseBtn").onclick = pause;
+          slider.oninput = (e)=>{ pause(); showIndex(parseInt(e.target.value,10)); };
+
+          // Start
+          showIndex(0);
+          play();
+        });
+      })();
+    </script>
+  </body>
+</html>
