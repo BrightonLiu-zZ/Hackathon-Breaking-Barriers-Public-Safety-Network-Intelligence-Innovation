@@ -1,4 +1,3 @@
-```markdown
 # Gunshot-Pattern MVP
 
 A small, end-to-end pipeline that simulates a crowd, extracts features, detects “evacuation-like” motion (**Model B**) and “surprising movement vs prediction” (**Model A**), fuses both triggers, and writes the rows used by the final animated viz.
@@ -7,7 +6,7 @@ A small, end-to-end pipeline that simulates a crowd, extracts features, detects 
 
 ## Repository Layout
 
-```
+
 
 .
 ├─ data/
@@ -36,7 +35,6 @@ A small, end-to-end pipeline that simulates a crowd, extracts features, detects 
 └─ src/
 └─ get_anomaly_dataset.py          # fuses Model A + Model B → gunshot_anomaly.csv
 
-````
 
 ---
 
@@ -97,7 +95,7 @@ A small, end-to-end pipeline that simulates a crowd, extracts features, detects 
 Run:
 ```bash
 python src/get_anomaly_dataset.py
-````
+
 
 This will:
 
