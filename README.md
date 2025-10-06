@@ -1,42 +1,9 @@
-# Gunshot-Pattern MVP
+# Gunshot-Pattern
 
-A small, end-to-end pipeline that simulates a crowd, extracts features, detects “evacuation-like” motion (**Model B**) and “surprising movement vs prediction” (**Model A**), fuses both triggers, and writes the rows used by the final animated viz.
+A small pipeline that simulates a crowd, extracts features, detects “evacuation-like” motion (**Model B**) and “surprising movement vs prediction” (**Model A**), fuses both triggers, and writes the rows used by the final animated viz.
 
----
-
-## Repository Layout
-
-
-
-.
-├─ data/
-│  ├─ expanded_gunshot_sim.csv        # full simulated day (positions every 2.5s)
-│  ├─ modelA_predictors.csv           # per-person predictors for Model A
-│  ├─ modelB_predictors.csv           # frame-level predictors for Model B
-│  └─ gunshot_anomaly.csv             # rows at anomaly timestamps (final output for viz)
-│
-├─ notebooks/
-│  ├─ create_expanded_dataset.ipynb           # (re)generate expanded_gunshot_sim.csv
-│  ├─ create_model_A_B_features.ipynb         # build modelA/modelB predictors
-│  ├─ create_necessary_files_for_ALS.ipynb    # turn anomaly rows into viz assets
-│  ├─ modelA.ipynb                            # residual-anomaly exploration (Trigger A)
-│  ├─ modelB.ipynb                            # tiny XGBoost classifier (Trigger B, local)
-│  ├─ model_B_SageMaker_XGBoost.ipynb         # (optional) SageMaker version
-│  └─ sagemaker_xgboost.ipynb                 # (optional) generic SageMaker helpers
-│
-├─ results/
-│  ├─ gunshot_points_all.geojson
-│  ├─ gunshot_clean.csv
-│  ├─ frames_index.json
-│  ├─ index.html                      # MapLibre-based animation page
-│  └─ frames/
-│     ├─ frame_000.geojson … frame_010.geojson (example frames)
-│
-└─ src/
-└─ get_anomaly_dataset.py          # fuses Model A + Model B → gunshot_anomaly.csv
-
-
----
+## TL; DR
+Our demo (using ALS for the map background, served on AWS site) for viz of a gunshot case on happening on a campus detected by our models: http://gunshot-demo-site.s3-website-us-west-2.amazonaws.com/
 
 ## Pipeline Overview
 
@@ -95,7 +62,7 @@ A small, end-to-end pipeline that simulates a crowd, extracts features, detects 
 Run:
 ```bash
 python src/get_anomaly_dataset.py
-
+```
 
 This will:
 
