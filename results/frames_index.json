@@ -1,0 +1,57 @@
+[
+  {
+    "index": 0,
+    "t": 0.0,
+    "file": "frame_000.geojson"
+  },
+  {
+    "index": 1,
+    "t": 2.5,
+    "file": "frame_001.geojson"
+  },
+  {
+    "index": 2,
+    "t": 5.0,
+    "file": "frame_002.geojson"
+  },
+  {
+    "index": 3,
+    "t": 7.5,
+    "file": "frame_003.geojson"
+  },
+  {
+    "index": 4,
+    "t": 10.0,
+    "file": "frame_004.geojson"
+  },
+  {
+    "index": 5,
+    "t": 12.5,
+    "file": "frame_005.geojson"
+  },
+  {
+    "index": 6,
+    "t": 15.0,
+    "file": "frame_006.geojson"
+  },
+  {
+    "index": 7,
+    "t": 17.5,
+    "file": "frame_007.geojson"
+  },
+  {
+    "index": 8,
+    "t": 20.0,
+    "file": "frame_008.geojson"
+  },
+  {
+    "index": 9,
+    "t": 22.5,
+    "file": "frame_009.geojson"
+  },
+  {
+    "index": 10,
+    "t": 25.0,
+    "file": "frame_010.geojson"
+  }
+]
