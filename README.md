@@ -141,7 +141,6 @@ Open: `http://localhost:8000/index.html`
 * `crowd_count` — total people inside the monitored cell
 * `near_center_fraction_5m` — deaths happen near the center; those phones become immobile and persist near the origin
 * `net_radial_flow_mps` — the net in-vs-out motion. Positive means the crowd, on average, is flowing outward
-* `radial_dispersion_std_m` — how spread out the crowd is around the center
 
 
 ### `data/gunshot_anomaly.csv` (output for viz)
