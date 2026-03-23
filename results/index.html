@@ -45,12 +45,22 @@
       /* Popup text */
       .pop{font:12px/1.3 system-ui,Segoe UI,Roboto,Helvetica,Arial}
       .pop .k{color:#666}
+      .xgb-banner{
+        position:fixed; z-index:13; left:12px; top:100px; max-width:min(420px,92vw);
+        background:#fde8e8; border:1px solid #b00020; color:#5c0011;
+        padding:8px 12px; border-radius:8px; font-size:14px; font-weight:600;
+        box-shadow:0 2px 8px rgba(0,0,0,.12);
+      }
     </style>
   </head>
 
   <body>
     <div class="titlebar" id="title">
-      Gunshot Case — locations every 2.5s
+      Gunshot Case — demo window (2.5s cadence) + XGBoost alerts
+    </div>
+
+    <div id="xgbBanner" class="xgb-banner" style="display:none">
+      XGBoost inference: gunshot-pattern alert (precomputed scores for this window)
     </div>
 
     <!-- Legend: only Still / Walk / Run (no Dead, no Alive) -->
@@ -111,6 +121,18 @@
 
         // Load your GeoJSON (features have phone_id + t)
         const full = await fetch(DATA_URL).then(r => r.json());
+
+        let alertsMeta = { xgb_alert_times_s: [] };
+        try {
+          alertsMeta = await fetch(ALERT_URL).then(r => r.json());
+        } catch (e) {
+          console.warn("Optional xgb_alerts.json not loaded:", e);
+        }
+        function isXgbAlertAt(t){
+          const tnum = Number(t);
+          const list = alertsMeta.xgb_alert_times_s || [];
+          return list.some(at => Math.abs(at - tnum) < 1.5);
+        }
 
         // Collect unique times & build quick lookup by (phone,t)
         const TIMES = Array.from(new Set(full.features.map(f => f.properties.t))).sort((a,b)=>a-b);
@@ -235,6 +257,9 @@
             cntStill.textContent = counts.still;
             cntWalk.textContent  = counts.walk;
             cntRun.textContent   = counts.run;
+
+            const xb = document.getElementById("xgbBanner");
+            if (xb) xb.style.display = isXgbAlertAt(t) ? "block" : "none";
           }
 
           function play(){

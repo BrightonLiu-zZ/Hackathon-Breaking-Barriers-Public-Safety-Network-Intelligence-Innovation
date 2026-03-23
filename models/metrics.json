@@ -1,0 +1,12 @@
+{
+  "pr_auc_val": 1.0,
+  "pr_auc_test": 1.0,
+  "pr_curve_auc_val": 1.0,
+  "test_confusion": {
+    "tn": 2590,
+    "fp": 0,
+    "fn": 1,
+    "tp": 1
+  },
+  "threshold": 0.999893678894043
+}

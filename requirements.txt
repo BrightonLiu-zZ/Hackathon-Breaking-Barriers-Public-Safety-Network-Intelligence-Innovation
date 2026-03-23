@@ -1,0 +1,11 @@
+# Core pipeline (Python 3.10+)
+pandas>=2.0
+numpy>=1.26
+pyarrow>=14.0
+scikit-learn>=1.3
+xgboost>=2.0
+matplotlib>=3.8
+
+# Optional: ONNX export (often fails for XGBoost; Lambda uses native JSON instead)
+# skl2onnx>=1.16
+# onnxruntime>=1.16

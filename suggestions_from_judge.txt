@@ -1,0 +1,3 @@
+Architect a real-time anomaly detection system for simulated tail-risk events, implementing a 0.5–1s micro-batching pipeline to efficiently process LLM-generated synthetic data streams.
+Engineer lagged spatio-temporal features via client-side sliding windows for stateless backend processing; trained an XGBoost classifier, tuning thresholds via PR AUC to minimize False Negatives on imbalanced data.
+Deploy ultra-low latency model inference via AWS Lambda (<100ms), streaming anomaly triggers to an S3-hosted Amazon Location Service interactive dashboard for real-time visualization.

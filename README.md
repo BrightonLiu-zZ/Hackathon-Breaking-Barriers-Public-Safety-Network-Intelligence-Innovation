@@ -1,201 +1,109 @@
-# Gunshot-Pattern
+# Gunshot pattern — XGBoost + ALS map (hackathon)
 
-A small pipeline that simulates a crowd, extracts features, detects “evacuation-like” motion (**Model B**) and “surprising movement vs prediction” (**Model A**), fuses both triggers, and writes the rows used by the final animated viz.
+End-to-end pipeline: **synthetic crowd simulation** (rare gunshot window) → **lagged spatio-temporal frame features** with **1s micro-batching** → **XGBoost** classifier → **PR curve / FN-focused threshold report** → optional **AWS Lambda** inference (native XGBoost JSON) → **S3 static site** with MapLibre + **Amazon Location Service** basemap.
 
-## TL; DR
-Our demo (using ALS for the map background, served on AWS site) for viz of a gunshot case on happening on a campus detected by our models: http://gunshot-demo-site.s3-website-us-west-2.amazonaws.com/
-
-## Pipeline Overview
-
-**Goal:** Raise a final alert only when both are true:
-
-- **Trigger A (Model A):** Many people move very differently from a short-term prediction (residual anomaly).
-- **Trigger B (Model B):** A large share of people move outward from a center fast enough (evacuation pattern).
-
-**Viz Input:** Timestamps judged anomalous (A **AND** B) and the corresponding rows from `data/expanded_gunshot_sim.csv`, saved as `data/gunshot_anomaly.csv`. These are converted into GeoJSON frames that animate in `results/index.html`.
+**Live demo (existing):** [S3 static site](http://gunshot-demo-site.s3-website-us-west-2.amazonaws.com/) — replace contents with `results/` after you build assets.
 
 ---
 
-## Key Concepts
+## What each AWS piece does here
 
-### Model A (per person → frame)
-- Predictors per device at time *t*:  
-  `x_t_m, y_t_m, vx_t_mps, vy_t_mps`.
-- Predict next position via constant-velocity; compute **residual** (meters).
-- A device is “surprised” if residual > its **own** 99th percentile (from normal times).
-- If a big **fraction** of active devices are surprised for ≥ a few seconds → **Trigger A = ON**.
-
-### Model B (per frame)
-- Predictors per timestamp:  
-  `outward_fraction`, `mean_outward_speed_mps`.
-- Tiny XGBoost outputs `P(evac)`.  
-  If `P(evac) ≥ cutoff` for ≥ **M** consecutive ticks → **Trigger B = ON**.
-
-### Fusion
-- **Final anomaly** when **A AND B** are both true at (or within ±1 tick of) the same time.
+| Service | Role in this project |
+|--------|----------------------|
+| **S3** | Hosts `index.html`, `results/out/*.geojson`, and JSON sidecars. No inference runs in S3—only static files. |
+| **Lambda** | Optional HTTP inference: load `models/xgboost_gunshot.json` + `threshold.json`, score a batch of feature rows. See `lambda_inference/`. |
+| **Amazon Location Service** | Map **basemap** for MapLibre (`style-descriptor`). Cognito **Identity Pool** in `results/index.html` supplies temporary credentials (already configured). |
 
 ---
 
-## End-to-End Steps
+## Quick reproduction (repo root)
 
-> If you just want the viz quickly, see **Quick Start**.
-
-### 1) Generate / Re-generate the simulated day (optional)
-- `notebooks/create_expanded_dataset.ipynb` → `data/expanded_gunshot_sim.csv`  
-  *(Already provided for convenience.)*
-
-### 2) Create model predictors (features)
-- `notebooks/create_model_A_B_features.ipynb` →  
-  - `data/modelA_predictors.csv` with:  
-    `phone_id, t, x_t_m, y_t_m, vx_t_mps, vy_t_mps`
-  - `data/modelB_predictors.csv` with:  
-    `t, outward_fraction, mean_outward_speed_mps`  
-  *(Both already included.)*
-
-### 3) Train / Inspect Models (optional but recommended)
-- `notebooks/modelA.ipynb`: explore residuals, choose thresholds, view Trigger A over time.
-- `notebooks/modelB.ipynb`: train tiny local XGBoost, choose probability cutoff, apply persistence.  
-  Final cell writes `modelB_classifier_outputs_sagemaker.csv` (local file with columns `t, proba, pred_persist, label`).  
-  > Name is kept for compatibility; it does **not** require SageMaker.
-
-### 4) Fuse triggers and write anomaly rows
-Run:
 ```bash
-python src/get_anomaly_dataset.py
+pip install -r requirements.txt
+python scripts/generate_expanded_dataset.py
+python scripts/build_features_lagged.py
+python scripts/train_xgboost.py
+python scripts/infer_local.py
+python scripts/build_demo_geojson.py
 ```
 
-This will:
+Outputs:
 
-1. Read `data/modelA_predictors.csv`, compute **Trigger A**.
-2. Read `data/modelB_predictors.csv` and either:
+| Path | Description |
+|------|-------------|
+| `data/expanded_gunshot_sim.csv` | Per-phone positions; `is_gunshot` labels rare windows |
+| `data/sim_metadata.json` | Gunshot event start time(s) for demos |
+| `data/features_lagged.parquet` | Training/inference feature matrix + `y` |
+| `models/evaluation_report.md` | PR-AUC, threshold, confusion matrix |
+| `models/pr_curve_val.png` | Validation PR curve |
+| `models/xgboost_gunshot.json` | Serialized model |
+| `models/threshold.json` | Threshold + `feature_names` |
+| `results/predictions.json` | Batch scores from `infer_local.py` |
+| `results/out/gunshot_points_all.geojson` | Demo-window map data |
+| `results/out/xgb_alerts.json` | Times where the model fires (for HUD) |
 
-   * use `modelB_classifier_outputs_sagemaker.csv` if present, **or**
-   * apply a simple two-threshold rule (fallback).
-3. Fuse **A AND B** → anomaly timestamps.
-4. Filter `data/expanded_gunshot_sim.csv` to those times and save **`data/gunshot_anomaly.csv`**.
-
-### 5) Build viz assets & view animation
-
-* `notebooks/create_necessary_files_for_ALS.ipynb` → produces:
-
-  * `results/gunshot_points_all.geojson`
-  * `results/frames/` + `results/frames_index.json`
-  * `results/gunshot_clean.csv`
-* Serve locally to avoid CORS:
+### View the map locally
 
 ```bash
 cd results
 python -m http.server 8000
 ```
 
-Open: `http://localhost:8000/index.html`
+Open `http://localhost:8000/index.html` (file:// breaks CORS/fetch).
+
+### S3 static deploy
+
+Upload the **`results/`** folder (including `out/`) to your bucket with **static website hosting** enabled. Keep the same paths so `./out/gunshot_points_all.geojson` resolves. Reuse the existing **Identity Pool** + **Amazon Location Service** map IDs in `index.html` unless you create new resources.
 
 ---
 
-## Quick Start
+## Model & evaluation
 
-1. (Optional) Install basics:
-
-   ```bash
-   pip install pandas numpy xgboost scikit-learn
-   ```
-2. Fuse triggers & write anomaly rows:
-
-   ```bash
-   python src/get_anomaly_dataset.py
-   ```
-3. Build viz assets:
-
-   * Run `notebooks/create_necessary_files_for_ALS.ipynb`
-4. Serve the viz:
-
-   ```bash
-   cd results
-   python -m http.server 8000
-   ```
-
-   Open `http://localhost:8000/index.html`.
+- **Classifier:** single `XGBClassifier` on lagged frame features (no legacy Model A + Model B fusion).
+- **Labels:** `y` derived from simulation `is_gunshot` at the **micro-batch** level (max within each 1s bin).
+- **Split:** **stratified** train/val/test so each split contains positives (pure time splits often empty for a single rare event).
+- **Threshold:** validation rule prefers **zero false negatives** when possible (`min_positive_score_minus_epsilon`), then falls back to scanning thresholds.
+- **Metrics:** see `models/evaluation_report.md` and `models/metrics.json`.
 
 ---
 
-## Data & Feature Schemas
+## Lambda (container image)
 
-### `data/expanded_gunshot_sim.csv`
+From repo root (Docker required):
 
-* `phone_id` — unique device ID
-* `t` — seconds since start (2.5s cadence)
-* `lat`, `lon` — WGS84 coordinates
-* `is_gunshot` — 1 inside the scripted window, else 0
+```bash
+docker build -f lambda_inference/Dockerfile -t gunshot-lambda .
+```
 
-### `data/modelA_predictors.csv` (per device, per time)
+Push to **Amazon ECR**, create a **Lambda** from the image. The image sets `CMD ["lambda_function.lambda_handler"]`. Request body (JSON):
 
-* `phone_id`, `t`
-* `x_t_m`, `y_t_m` — meters in a local planar frame (centered on the area)
-* `vx_t_mps`, `vy_t_mps` — per-axis velocities (m/s)
+```json
+{
+  "features": [[0.0, 0.1, ...]],
+  "feature_names": ["outward_fraction", ...]
+}
+```
 
-### `data/modelB_predictors.csv` (per frame)
-
-* `t`
-* `outward_fraction` — share of people moving outward from the center (and above a speed threshold)
-* `mean_outward_speed_mps` — average speed (m/s) among outward movers
-* `crowd_count` — total people inside the monitored cell
-* `near_center_fraction_5m` — deaths happen near the center; those phones become immobile and persist near the origin
-* `net_radial_flow_mps` — the net in-vs-out motion. Positive means the crowd, on average, is flowing outward
-
-
-### `data/gunshot_anomaly.csv` (output for viz)
-
-* Subset of rows from `expanded_gunshot_sim.csv` at anomaly timestamps
-* Includes Trigger A/B flags for traceability
+`feature_names` can be omitted if it matches `threshold.json`. ONNX export is optional and often unnecessary; the image uses **XGBoost + JSON** for compatibility.
 
 ---
 
-## Tuning Dials (safe defaults)
+## Legacy (Model A + B)
 
-Edit at the top of `src/get_anomaly_dataset.py`:
-
-**Model A**
-
-* `RESIDUAL_PERCENTILE = 0.99` (per-device residual threshold)
-* `MIN_FRACTION_SURPRISED = 0.35` (frame-level surprised fraction)
-* `PERSIST_TICKS_A = 2` (consecutive ticks ≈ 5 s)
-
-**Model B** (rule fallback when classifier output isn’t present)
-
-* `B_FRAC = 0.65` (min outward fraction)
-* `B_SPEED = 2.3` (m/s, min speed for outward movers)
-* `PERSIST_TICKS_B = 2`
-
-**Fusion**
-
-* A simple **AND** at the same tick (allow ±1 tick if needed).
-
-> Fewer false alerts → raise thresholds or persistence.
-> Earlier detection → lower thresholds or persistence.
+The old fusion script lives in `legacy/get_anomaly_dataset.py` and is **not** part of the current pipeline.
 
 ---
 
-## Common Pitfalls
+## Notebooks
 
-* **No anomalies appear**
-  Lower `MIN_FRACTION_SURPRISED` (A) or Model B cutoff / `B_FRAC` / `B_SPEED`. Confirm feature notebooks ran.
-
-* **Too many anomalies**
-  Raise thresholds or increase `PERSIST_TICKS_*` from 2 → 3.
-
-* **Viz won’t load frames**
-  Always open `results/index.html` via `python -m http.server` (not as a file URL).
+| Notebook | Purpose |
+|----------|---------|
+| `notebooks/create_expanded_dataset.ipynb` | Same simulation as `scripts/generate_expanded_dataset.py` |
+| `notebooks/train_xgboost_pr.ipynb` | Calls training scripts |
+| `notebooks/create_model_A_B_features.ipynb` | **Legacy** feature recipe (per-phone + Model B columns); superseded by `gunshot_ml/features.py` |
 
 ---
 
-## License & Attribution
+## License & attribution
 
-* Simulated data and derived assets for research/demo purposes.
-* Map rendering via MapLibre (`results/index.html`).
-* XGBoost is used for the tiny frame-level classifier (Model B).
-
----
-
-## Maintainer Notes
-
-* Keep **feature recipe constants** (e.g., speed threshold defining an “outward mover”) and **persistence windows** together for quick tuning across venues (size, density, device cadence).
+Simulated data and derived assets are for research/demo. Map rendering: MapLibre + Amazon Location Service. XGBoost for the classifier.

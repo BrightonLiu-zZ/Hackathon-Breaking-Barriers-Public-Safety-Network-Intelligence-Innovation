@@ -1,0 +1,33 @@
+{
+  "threshold": 0.999893678894043,
+  "threshold_report_val": {
+    "threshold": 0.999893678894043,
+    "tn": 2591,
+    "fp": 0,
+    "fn": 0,
+    "tp": 1,
+    "rule": "min_positive_score_minus_epsilon"
+  },
+  "feature_names": [
+    "outward_fraction",
+    "outward_fraction_lag1",
+    "outward_fraction_lag2",
+    "outward_fraction_lag3",
+    "mean_outward_speed_mps",
+    "mean_outward_speed_mps_lag1",
+    "mean_outward_speed_mps_lag2",
+    "mean_outward_speed_mps_lag3",
+    "crowd_count",
+    "crowd_count_lag1",
+    "crowd_count_lag2",
+    "crowd_count_lag3",
+    "net_radial_flow_mps",
+    "net_radial_flow_mps_lag1",
+    "net_radial_flow_mps_lag2",
+    "net_radial_flow_mps_lag3",
+    "near_center_fraction_5m",
+    "near_center_fraction_5m_lag1",
+    "near_center_fraction_5m_lag2",
+    "near_center_fraction_5m_lag3"
+  ]
+}
