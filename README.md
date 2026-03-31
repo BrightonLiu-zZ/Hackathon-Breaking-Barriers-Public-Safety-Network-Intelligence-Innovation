@@ -14,12 +14,7 @@ End-to-end pipeline: **synthetic crowd simulation** (rare gunshot windows, 56-da
 
 **Real-time inference demo (local server):**
 
-<!-- TODO: upload real_time_inference.mp4 and replace this comment with:
-![Real-time inference demo](real_time_inference.mp4)
-or link to it: [Watch demo video](real_time_inference.mp4)
--->
-
-> Video coming soon — run locally with `python server/app.py` to see live inference.
+https://github.com/user-attachments/assets/e5dd4357-8db2-4d76-8c66-d15861903eeb
 
 ---
 
