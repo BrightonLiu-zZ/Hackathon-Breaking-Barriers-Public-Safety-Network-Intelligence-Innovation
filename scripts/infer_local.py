@@ -33,9 +33,9 @@ def predict_batch(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", type=Path, default=ROOT / "models" / "xgboost_gunshot.json")
-    ap.add_argument("--threshold", type=Path, default=ROOT / "models" / "threshold.json")
-    ap.add_argument("--features", type=Path, default=ROOT / "data" / "features_lagged.parquet")
+    ap.add_argument("--model", type=Path, default=ROOT / "models" / "xgboost_56day.json")
+    ap.add_argument("--threshold", type=Path, default=ROOT / "models" / "threshold_56day.json")
+    ap.add_argument("--features", type=Path, default=ROOT / "data" / "features_lagged_56day.parquet")
     ap.add_argument("--out", type=Path, default=ROOT / "results" / "predictions.json")
     args = ap.parse_args()
 

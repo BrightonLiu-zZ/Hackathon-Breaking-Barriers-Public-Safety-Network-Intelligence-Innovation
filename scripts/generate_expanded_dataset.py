@@ -1,5 +1,8 @@
 """
-Regenerate data/expanded_gunshot_sim.csv without Jupyter (same logic as notebooks/create_expanded_dataset.ipynb).
+Regenerate data/expanded_gunshot_sim.csv without Jupyter.
+
+Logic matches notebooks/create_expanded_dataset.ipynb: same RNG seeding order,
+fresh active/retired/IMEI state each run, and the same main-loop iteration as the notebook.
 Run from repo root: python scripts/generate_expanded_dataset.py
 """
 from __future__ import annotations
@@ -7,7 +10,6 @@ from __future__ import annotations
 import json
 import math
 import random
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -15,8 +17,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 OUT_CSV = ROOT / "data" / "expanded_gunshot_sim.csv"
 
-random.seed(42)
-
+# --- Constants (same as notebook cell 1) ---
 DT = 2.5
 T_START = 0.0
 T_END = 43200.0
@@ -51,9 +52,6 @@ def sample_event_starts(num_events: int, t_end: float, gap_s: float, seed: int =
         else:
             raise RuntimeError("Could not place gunshot events; increase T_END or reduce count")
     return sorted(starts)
-
-
-GUNSHOT_EVENT_STARTS = sample_event_starts(NUM_GUNSHOT_EVENTS, T_END, MIN_EVENT_GAP_S)
 
 
 def meters_per_degree(lat_deg: float) -> tuple[float, float]:
@@ -127,9 +125,9 @@ def choose_state_for_normal() -> str:
 
 
 def speed_for_state(state: str) -> float:
-    if state in ("run", "run_away"):
+    if state == "run" or state == "run_away":
         return random.uniform(RUN_MIN, RUN_MAX)
-    if state in ("walk", "walk_away"):
+    if state == "walk" or state == "walk_away":
         return random.uniform(WALK_MIN, WALK_MAX)
     return STILL_SPEED
 
@@ -160,6 +158,11 @@ def step_person(person: dict, dt: float, t_now: float, gunshot_window: bool = Fa
     person["x"], person["y"], person["heading"] = x, y, h
 
 
+def distance_from_center(person: dict) -> float:
+    return math.hypot(person["x"], person["y"])
+
+
+# Populated fresh each run (like notebook cells 4 + 6)
 active: dict = {}
 retired_ids: set = set()
 
@@ -193,7 +196,8 @@ def try_exit(person: dict) -> bool:
 def maintain_normal_population(now_t: float, target_min: int = MIN_PEOPLE, target_max: int = MAX_PEOPLE) -> None:
     n = len(active)
     if n < target_min:
-        for _ in range(target_min - n):
+        need = target_min - n
+        for _ in range(need):
             spawn_one(now_t)
     elif n > target_max:
         pass
@@ -215,7 +219,8 @@ def adjust_states_toward_ratio() -> None:
 def force_population_to_exact_100(now_t: float) -> None:
     n = len(active)
     if n < GUNSHOT_POP:
-        for _ in range(GUNSHOT_POP - n):
+        need = GUNSHOT_POP - n
+        for _ in range(need):
             spawn_one(now_t)
     elif n > GUNSHOT_POP:
         extras = random.sample(list(active.keys()), n - GUNSHOT_POP)
@@ -257,7 +262,7 @@ def set_mix_at_25202p5() -> None:
 def set_mix_at_25205() -> None:
     snap_random_to_ring_and_kill(2, 5.0)
     alive_pids = [pid for pid, p in active.items() if p["state"] != "dead"]
-    assert len(alive_pids) == 95
+    assert len(alive_pids) == 95, "There should be 95 alive at phase 2"
     random.shuffle(alive_pids)
     runA = alive_pids[:85]
     walkA = alive_pids[85:90]
@@ -280,24 +285,24 @@ def set_all_alive_run_away_at_25207p5() -> None:
             p["speed"] = speed_for_state("run_away")
 
 
-def gunshot_window_active(t: float) -> bool:
-    for s in GUNSHOT_EVENT_STARTS:
+def gunshot_window_active(t: float, event_starts: list[float]) -> bool:
+    for s in event_starts:
         if s <= t <= s + EVENT_DURATION:
             return True
     return False
 
 
-def active_event_start(t: float) -> float | None:
-    for s in GUNSHOT_EVENT_STARTS:
+def active_event_start(t: float, event_starts: list[float]) -> float | None:
+    for s in event_starts:
         if s <= t <= s + EVENT_DURATION:
             return s
     return None
 
 
-def target_bounds_for_time(t: float) -> tuple[int, int]:
-    if active_event_start(t) is not None:
+def target_bounds_for_time(t: float, event_starts: list[float]) -> tuple[int, int]:
+    if active_event_start(t, event_starts) is not None:
         return GUNSHOT_POP, GUNSHOT_POP
-    for s in sorted(GUNSHOT_EVENT_STARTS):
+    for s in sorted(event_starts):
         if s - 60 <= t < s - 10:
             return 90, 110
         if s - 10 <= t < s:
@@ -309,7 +314,22 @@ def near_tick(t: float, target: float, eps: float = 1e-6) -> bool:
     return abs(t - target) < eps
 
 
-def run_simulation() -> pd.DataFrame:
+def run_simulation() -> tuple[pd.DataFrame, list[float]]:
+    """
+    Match notebook execution: seed global RNG, sample events, reset population state,
+    then run the same loop as create_expanded_dataset.ipynb cell 6.
+    """
+    global next_imei_serial, active, retired_ids
+
+    # Same as notebook: cell 1 random.seed(42); event starts use independent Random(42)
+    random.seed(42)
+    gunshot_event_starts = sample_event_starts(NUM_GUNSHOT_EVENTS, T_END, MIN_EVENT_GAP_S)
+
+    # Fresh state like re-running notebook cells 4–6 (not accumulating across script invocations)
+    next_imei_serial = 10000000000000
+    active = {}
+    retired_ids = set()
+
     rows: list[dict] = []
 
     def record_positions(now_t: float, is_gunshot_flag: bool) -> None:
@@ -328,17 +348,17 @@ def run_simulation() -> pd.DataFrame:
     num_steps = int((T_END - T_START) / DT) + 1
     times = [T_START + i * DT for i in range(num_steps)]
 
-    print("Gunshot event start times (s):", [round(x, 1) for x in GUNSHOT_EVENT_STARTS])
+    print("Gunshot event start times (s):", [round(x, 1) for x in gunshot_event_starts])
 
     for t in times:
-        in_gunshot = gunshot_window_active(t)
+        in_gunshot = gunshot_window_active(t, gunshot_event_starts)
 
         if not in_gunshot:
-            lo, hi = target_bounds_for_time(t)
+            lo, hi = target_bounds_for_time(t, gunshot_event_starts)
             maintain_normal_population(t, lo, hi)
             adjust_states_toward_ratio()
 
-        for s in GUNSHOT_EVENT_STARTS:
+        for s in gunshot_event_starts:
             if near_tick(t, s):
                 force_population_to_exact_100(t)
                 set_mix_at_25202p5()
@@ -349,8 +369,9 @@ def run_simulation() -> pd.DataFrame:
                 force_population_to_exact_100(t)
                 set_all_alive_run_away_at_25207p5()
 
+        # Same as notebook: iterate active.items() directly (no list() copy)
         to_remove: list = []
-        for pid, person in list(active.items()):
+        for pid, person in active.items():
             step_person(person, DT, t, gunshot_window=in_gunshot)
             if not in_gunshot and try_exit(person):
                 to_remove.append(pid)
@@ -364,18 +385,18 @@ def run_simulation() -> pd.DataFrame:
         record_positions(t, is_gunshot_flag=in_gunshot)
 
     df = pd.DataFrame(rows, columns=["phone_id", "t", "lat", "lon", "is_gunshot"])
-    return df
+    return df, gunshot_event_starts
 
 
 def main() -> None:
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    df = run_simulation()
+    df, gunshot_event_starts = run_simulation()
     df.to_csv(OUT_CSV, index=False)
     meta_path = ROOT / "data" / "sim_metadata.json"
     meta_path.write_text(
         json.dumps(
             {
-                "gunshot_event_starts_s": GUNSHOT_EVENT_STARTS,
+                "gunshot_event_starts_s": gunshot_event_starts,
                 "event_duration_s": EVENT_DURATION,
                 "t_end_s": T_END,
                 "dt_s": DT,

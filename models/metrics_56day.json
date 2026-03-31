@@ -1,0 +1,21 @@
+{
+  "pr_auc_val": 0.8276286545900907,
+  "pr_auc_test": 0.8490566037735849,
+  "pr_curve_auc_val": 0.9111400484488915,
+  "test_confusion": {
+    "tn": 155415,
+    "fp": 16,
+    "fn": 0,
+    "tp": 90
+  },
+  "threshold": 0.7414989471435547,
+  "best_iteration": 12,
+  "split_info": {
+    "train_positives": 390,
+    "val_positives": 80,
+    "test_positives": 90,
+    "train_rows": 673917,
+    "val_rows": 138240,
+    "test_rows": 155521
+  }
+}

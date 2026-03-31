@@ -1,1 +1,7 @@
+data/
 results/*.mp4
+*.mp4
+__pycache__/
+**/__pycache__/
+*.pyc
+terminal_content.txt
